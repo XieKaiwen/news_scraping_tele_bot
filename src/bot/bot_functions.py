@@ -53,3 +53,23 @@ async def send_search_query_help(update: Update, context: ContextTypes.DEFAULT_T
     await update.message.reply_text("Here is a quick cheatsheet on operators to use to refine your search queries input for this bot...")
     await update.message.reply_text(google_search_operator, parse_mode='HTML')
     # await update.message.reply_text(advanced_google_search_operators, parse_mode='MarkdownV2')
+
+
+async def display_user_queries(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = context.user_data["id"]
+    
+    async with get_db() as db:
+        try:
+            queries = await crud.get_user_queries_by_user(db, user_id)
+        except Exception as e:
+            logging.error(e)
+            await update.message.reply_text(f"Error occurred when fetching queries. {err_fn.handle_data_mutation_error(e)}")
+            return
+        # Check if the user has any saved topics
+        if not queries_list:
+            await update.message.reply_text("You don't have any saved topics.")
+            return
+
+        # Format and display the topics
+        queries_list = "\n".join([f"{idx + 1}. {query.query}" for idx, query in enumerate(queries)])
+        await update.message.reply_text(f"Here are your saved queries:\n{queries_list}")

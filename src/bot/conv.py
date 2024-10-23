@@ -200,3 +200,114 @@ edit_topic_preference_conv_handler = ConversationHandler(
     },
     fallbacks=[CommandHandler("cancel", bf.cancel)]
 )
+
+
+#TODO edit_saved_queries command
+async def edit_saved_queries(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Here are your current saved queries...")
+    await bf.display_user_queries(update, context)
+    options_keyboard = [
+        [InlineKeyboardButton("Add Query", callback_data='add')],
+        [InlineKeyboardButton("Delete Query", callback_data='delete')],
+        [InlineKeyboardButton("Clear Queries", callback_data='clear')],
+    ]
+    reply_markup = InlineKeyboardMarkup(options_keyboard)
+    await update.message.reply_text("Choose an option:", reply_markup=reply_markup)
+    return bot_states.EditSavedQueries.SELECT_ACTION
+
+async def edit_saved_queries_select_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    if query.data == 'add':
+        await query.edit_message_text("Please provide the query to be saved:")
+        return bot_states.EditTopicPreference.ADD_TOPIC_NAME
+    
+    elif query.data == 'delete':
+        # Fetch topics from the database for the user
+        user_id = context.user_data["id"]
+        async with get_db() as db:
+            try:
+                queries = await crud.get_user_queries_by_user(db, user_id)
+            except Exception as e:
+                logging.error(e)
+                await query.edit_message_text(f"Error occurred when fetching queries. {err_fn.handle_data_mutation_error(e)}")
+                return
+
+        if not queries:
+            await query.edit_message_text("No user queries found...")
+            return ConversationHandler.END
+        
+        # Create buttons for each topic
+        keyboard = [
+            [InlineKeyboardButton(f"{query.query}", callback_data=str(query.id)) for query in queries]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text("Select a query to delete:", reply_markup=reply_markup)
+        return bot_states.EditSavedQueries.DELETE_QUERY
+
+    elif query.data == 'clear':
+        await query.edit_message_text("Type CONFIRM to confirm clearing all saved queries.")
+        return bot_states.EditSavedQueries.CLEAR_QUERIES 
+    
+async def add_saved_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query_to_add = update.message.text.strip()
+    async with get_db() as db:
+        try:
+            query_added = await crud.create_user_query(db, query_to_add, context.user_data["id"])
+        except Exception as e:
+            logging.error(e)
+            await update.message.reply_text(f"Error occurred when adding query. {err_fn.handle_data_mutation_error(e)}. Exitting the session.")  
+            return 
+    await update.message.reply_text("Query added successfully. Here is the updated saved queries...")
+    await bf.display_user_queries(update, context)
+    return ConversationHandler.END
+    
+async def delete_saved_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    query_id = query.data
+
+    # Delete topic from the database
+    async with get_db() as db:
+        try:
+            await crud.delete_user_query(db, query_id)
+        except Exception as e:
+            logging.error(e)
+            await query.edit_message_text(f"Error occurred when deleting query. {err_fn.handle_data_mutation_error(e)}")
+            return
+
+    await query.edit_message_text("Query deleted successfully.")
+    await update.message.reply_text("Here is the updated saved queries...")
+    await bf.display_user_queries(update, context)
+    return ConversationHandler.END
+
+async def clear_queries_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text.strip() == "CONFIRM":
+        async with get_db() as db:
+            # Clear all topics for the user (implement delete logic)
+            user_id = context.user_data["id"]
+            try:
+                await db.execute(text('DELETE FROM "userQueries" WHERE user_id = :user_id'), {"user_id": user_id})
+                await db.commit()
+            except Exception as e:
+                logging.error(e)
+                await update.message.reply_text(f"Error occurred when clearing topics. {err_fn.handle_data_mutation_error(e)} Exiting the session.")
+                return ConversationHandler.END
+        await update.message.reply_text("All queries cleared.")
+        return ConversationHandler.END
+    else:
+        await update.message.reply_text("Action not confirmed. Type 'CONFIRM' to proceed.")
+        return bot_states.EditSavedQueries.CLEAR_QUERIES
+
+
+edit_saved_queries_conv_handler = ConversationHandler(
+    entry_points=[CommandHandler("edit_saved_queries", edit_saved_queries)],
+    states={
+        bot_states.EditSavedQueries.SELECT_ACTION: [CallbackQueryHandler(edit_saved_queries_select_action)],
+        bot_states.EditSavedQueries.ADD_QUERY: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_saved_query)],
+        bot_states.EditSavedQueries.DELETE_QUERY: [CallbackQueryHandler(delete_saved_query)],
+        bot_states.EditSavedQueries.CLEAR_QUERIES: [MessageHandler(filters.TEXT & ~filters.COMMAND, clear_queries_confirm)]
+    },
+    fallbacks=[CommandHandler("cancel", bf.cancel)]
+)
