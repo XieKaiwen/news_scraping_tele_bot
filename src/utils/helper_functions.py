@@ -7,7 +7,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import inch
 from reportlab.lib import colors
-
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 # Only keeps the articles that were published within num_days of days, default value is 1
 def filter_recent_articles(articles, num_days = 1):
   # Current date and time
@@ -39,6 +39,7 @@ def extract_title_link_date(entry):
 def get_unique_list(entry_list):
   unique_entries = {}
   for entry in entry_list:
+    # print(entry)
     title = entry['title']
     clean_title = title.rpartition('-')[0].strip()
     if clean_title not in unique_entries:
@@ -162,5 +163,41 @@ def extract_flags(command_text, flags_to_extract):
     # print(matches)
     # Create a dictionary for the flags we want to extract, but only include those found in matches
     extracted_flags = {flag: matches[flag] for flag in flags_to_extract if flag in matches}
-    
+    print(extracted_flags)
     return extracted_flags
+
+
+def generate_queries_keyboard(user_queries):
+    keyboard = []
+    for query in user_queries:
+        keyboard.append([InlineKeyboardButton(query.query, callback_data=str(query.id))])
+    keyboard.append([InlineKeyboardButton("Other", callback_data="others")])
+    return InlineKeyboardMarkup(keyboard)
+  
+  # Function to validate 'when' input
+def validate_when_input(when_input: str) -> bool:
+    if len(when_input) < 2:
+        return False
+    number_part = when_input[:-1]
+    unit = when_input[-1]
+    if unit not in ['h', 'd', 'm']:
+        return False
+    if not number_part.isdigit():
+        return False
+    return True
+
+# Function to validate date format
+def validate_date(date_str: str) -> bool:
+    try:
+        datetime.strptime(date_str, "%Y-%m-%d")
+        return True
+    except ValueError:
+        return False
+
+def remove_all_except_id_in_place(data_dict):
+    # Get a list of keys to delete (all except 'id')
+    keys_to_remove = [key for key in data_dict if key != 'id']
+    
+    # Remove those keys from the dictionary
+    for key in keys_to_remove:
+        del data_dict[key]

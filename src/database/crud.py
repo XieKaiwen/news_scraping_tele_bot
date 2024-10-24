@@ -56,6 +56,20 @@ async def get_topic_preferences_by_user(db: AsyncSession, user_id: UUID) -> list
     result = await db.execute(select(TopicPreference).filter(TopicPreference.user_id == user_id))
     return result.scalars().all()
 
+async def get_topic_preference_by_user_and_hash(db: AsyncSession, user_id: UUID, topic_hash: str):
+    # Query the database to get the specific TopicPreference based on user_id and topic_hash
+    result = await db.execute(
+        select(TopicPreference).where(
+            TopicPreference.user_id == user_id,
+            TopicPreference.topic_hash == topic_hash
+        )
+    )
+    
+    # Fetch the first matching record (if any)
+    topic_preference = result.scalars().first()
+    
+    return topic_preference
+
 # Delete a topic preference
 async def delete_topic_preference(db: AsyncSession, topic_id: UUID) -> None:
     topic = await db.execute(select(TopicPreference).filter(TopicPreference.id == topic_id))
@@ -91,6 +105,10 @@ async def create_user_query(db: AsyncSession, user_id: UUID, query: str) -> User
     await db.commit()
     await db.refresh(new_query)
     return new_query
+
+async def get_user_query_by_id(db: AsyncSession, query_id: UUID) -> UserQuery:
+    result = await db.execute(select(UserQuery).filter(UserQuery.id == query_id))
+    return result.scalars().first()
 
 # Retrieve all queries for a user
 async def get_user_queries_by_user(db: AsyncSession, user_id: UUID) -> list[UserQuery]:

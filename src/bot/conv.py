@@ -10,6 +10,17 @@ import src.database.crud as crud
 import logging
 import src.utils.errors as err_fn
 from sqlalchemy import text
+from datetime import datetime, timedelta, date
+TIME_FILTER_KEYBOARD = [
+    [InlineKeyboardButton("Use 'when' parameter", callback_data='when')],
+    [InlineKeyboardButton("Use 'from' and 'to' dates", callback_data='from_to')],
+    [InlineKeyboardButton("DEFAULT (within 1 day)", callback_data='default')],
+]
+
+IF_SAVE_KEYBOARD = [
+    [InlineKeyboardButton("Yes", callback_data='yes')],
+    [InlineKeyboardButton("No", callback_data='no')],
+]
 
 # /top_news ConversationHandler
 async def select_country(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -25,23 +36,14 @@ async def select_country(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 async def top_news(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    command_text = update.message.text.strip()
-    command_flags = hf.extract_flags(command_text, ["c"])
-    print(command_flags)
-    if "c" in command_flags:
-        # Option 2: Let the user choose the country first
-        reply_keyboard = [[country] for country in countries_available]
-        await update.message.reply_text(
-            "Please choose a country:",
-            reply_markup=ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True),
-        )
-        
-        return bot_states.TopNews.SELECT_COUNTRY
-    else:
-        # Option 1: Send top news from default country (US)
-        await bf.send_top_news(update, context)
-        ConversationHandler.END
-        
+    reply_keyboard = [[country] for country in countries_available]
+    await update.message.reply_text(
+        "Please choose a country:",
+        reply_markup=ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True),
+    )
+
+    return bot_states.TopNews.SELECT_COUNTRY
+
 
 top_news_conv_handler = ConversationHandler(
     entry_points=[CommandHandler("top_news", top_news)],
@@ -231,8 +233,8 @@ async def edit_saved_queries_select_action(update: Update, context: ContextTypes
                 queries = await crud.get_user_queries_by_user(db, user_id)
             except Exception as e:
                 logging.error(e)
-                await query.edit_message_text(f"Error occurred when fetching queries. {err_fn.handle_data_mutation_error(e)}")
-                return
+                await query.edit_message_text(f"Error occurred when fetching queries. {err_fn.handle_data_mutation_error(e)} Exiting session...")
+                return ConversationHandler.END
 
         if not queries:
             await query.edit_message_text("No user queries found...")
@@ -254,11 +256,11 @@ async def add_saved_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query_to_add = update.message.text.strip()
     async with get_db() as db:
         try:
-            query_added = await crud.create_user_query(db, query_to_add, context.user_data["id"])
+            query_added = await crud.create_user_query(db, context.user_data["id"], query_to_add)
         except Exception as e:
             logging.error(e)
             await update.message.reply_text(f"Error occurred when adding query. {err_fn.handle_data_mutation_error(e)}. Exitting the session.")  
-            return 
+            return ConversationHandler.END
     await update.message.reply_text("Query added successfully. Here is the updated saved queries...")
     await bf.display_user_queries(update, context)
     return ConversationHandler.END
@@ -274,8 +276,8 @@ async def delete_saved_query(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await crud.delete_user_query(db, query_id)
         except Exception as e:
             logging.error(e)
-            await query.edit_message_text(f"Error occurred when deleting query. {err_fn.handle_data_mutation_error(e)}")
-            return
+            await query.edit_message_text(f"Error occurred when deleting query. {err_fn.handle_data_mutation_error(e)} Exiting the session...")
+            return ConversationHandler.END
 
     await query.edit_message_text("Query deleted successfully.")
     await update.message.reply_text("Here is the updated saved queries...")
@@ -310,4 +312,387 @@ edit_saved_queries_conv_handler = ConversationHandler(
         bot_states.EditSavedQueries.CLEAR_QUERIES: [MessageHandler(filters.TEXT & ~filters.COMMAND, clear_queries_confirm)]
     },
     fallbacks=[CommandHandler("cancel", bf.cancel)]
+)
+
+#----------------------------------------------------------------------------------------------------
+
+# /send_topic_news handler
+
+# Function to start the /topic_news conversation
+async def start_topic_news(update: Update, context:ContextTypes.DEFAULT_TYPE):
+    # flags that can be used: c (to choose if u want to choose what topic to send), f (to choose how many days to filter by for news)
+    filter_num_days = 0
+    async with get_db() as db:
+        user_id = context.user_data["id"]
+        try:
+            user_topics = await crud.get_topic_preferences_by_user(db, user_id)
+        except Exception as e:
+            logging(e)
+            await update.message.reply_text(f"Error occurred when fetching topics. {err_fn.handle_data_mutation_error(e)} Exiting session")
+            return ConversationHandler.END
+    
+    extracted_flags = hf.extract_flags(update.message.text, ["c", "f"])
+    if "f" in extracted_flags:
+        try:
+            filter_num_days = max(int(extracted_flags["f"]), 0) # cap it to filter by 1 day
+
+        except Exception as e:
+            logging.error(e)
+            await update.message.reply_text(f"{extracted_flags["r"]} is not a valid number for the -f flag. Try inputting correctly.")
+            return ConversationHandler.END
+    context.user_data["filter_num_days"] = filter_num_days
+    if "c" not in extracted_flags:
+        if not user_topics:
+            await update.message.reply_text("You have no saved topics. Please enter a custom topic name")
+            return bot_states.SendTopicNews.INPUT_CUSTOM_TOPIC_NAME
+        await update.message.reply_text("Fetching news for all saved topics...")
+        await bf.send_all_topic_news(update, context, user_topics)
+        context.user_data.pop("filter_num_days", None)
+        return ConversationHandler.END
+    
+    keyboard = []
+    for topic in user_topics:
+        keyboard.append([InlineKeyboardButton(topic.topic_name, callback_data=f"{topic.topic_hash}")])
+    keyboard.append([InlineKeyboardButton("Other", callback_data="others")])
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text('Select a topic:', reply_markup=reply_markup)
+    return bot_states.SendTopicNews.SELECT_SAVED_TOPICS
+
+# Function to handle selected saved topics or custom input
+async def select_saved_topics(update: Update, context:ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    if query.data == 'others':
+        await query.edit_message_text(text="Please enter a custom topic name:")
+        return bot_states.SendTopicNews.INPUT_CUSTOM_TOPIC_NAME
+    else:
+        # Handle pre-saved topic
+        async with get_db() as db:
+            user_id = context.user_data["id"]
+            topic_hash = query.data
+            try:
+                topic_selected = await crud.get_topic_preference_by_user_and_hash(db, user_id, topic_hash)
+            except Exception as e:
+                logging.error(e)
+                await query.edit_message_text(f"Error occurred when fetching topic. {err_fn.handle_data_fetching_error(e)} Exiting session...")
+                return ConversationHandler.END
+        await query.edit_message_text(text="Good choice!")
+        await bf.send_topic_news(update, context, topic_selected.topic_name, topic_selected.topic_hash, topic_selected.country_code)
+        context.user_data.pop("filter_num_days", None)
+        return ConversationHandler.END
+
+# Function to handle custom topic name input
+async def input_custom_topic_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    custom_topic_name = update.message.text.strip()
+    context.user_data['custom_topic_name'] = custom_topic_name
+    
+    if custom_topic_name.lower() in PUBLIC_TOPICS:
+        context.user_data['custom_topic_hash'] = PUBLIC_TOPICS[custom_topic_name.lower()]
+        await update.message.reply_text(f"Topic '{custom_topic_name}' is a public topic. Topic hash is added automatically.")
+        reply_markup = ReplyKeyboardMarkup(country_keyboard, one_time_keyboard=True)
+        await update.message.reply_text("Choose a country for the topic:", reply_markup=reply_markup)
+        return bot_states.SendTopicNews.INPUT_CUSTOM_TOPIC_COUNTRY
+    await update.message.reply_text(f"Enter a hash for the topic '{custom_topic_name}':")
+    return bot_states.SendTopicNews.INPUT_CUSTOM_TOPIC_HASH
+
+# Function to handle custom topic hashtag input
+async def input_custom_topic_hash(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    custom_topic_hash = update.message.text.strip()
+    context.user_data['custom_topic_hash'] = custom_topic_hash
+    reply_markup = ReplyKeyboardMarkup(country_keyboard, one_time_keyboard=True)
+    await update.message.reply_text("Choose a country for the topic:", reply_markup=reply_markup)
+    return bot_states.SendTopicNews.INPUT_CUSTOM_TOPIC_COUNTRY
+
+# Function to handle custom topic country input
+async def input_custom_topic_country(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    country = update.message.text.strip()
+    # Default to US if invalid country code is provided
+    if country not in countries_available:
+        await update.message.reply_text("Invalid country input, defaulting to United States...")
+        country_code = "US"
+    else:
+        country_code = countries_available[country]
+    
+    context.user_data['country_code'] = country_code
+    
+    await bf.send_topic_news(update, context, context.user_data['custom_topic_name'], context.user_data['custom_topic_hash'], country_code)
+    keyboard = [
+        [InlineKeyboardButton("Yes", callback_data='yes')],
+        [InlineKeyboardButton("No", callback_data='no')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await update.message.reply_text("Would you like to save this topic for future use?", reply_markup=reply_markup)
+    return bot_states.SendTopicNews.PROMPT_IF_SAVE_TOPIC
+
+async def prompt_if_save_topic(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    # print("1")
+    await query.answer()
+    # print("")
+    response = query.data  # This will be 'yes' or 'no' based on the button pressed
+
+    if response == 'yes':
+        # Save the topic logic here
+        async with get_db() as db:
+            user_id = context.user_data["id"]
+            topic_name = context.user_data["custom_topic_name"]
+            topic_hash = context.user_data["custom_topic_hash"]
+            country_code = context.user_data["country_code"]
+            try:
+                await crud.create_topic_preference(db, user_id, topic_name, topic_hash, country_code)
+            except Exception as e:
+                logging.error(e)
+                await query.edit_message_text(f"Error occurred when saving topic. {err_fn.handle_data_mutation_error(e)} Exiting session...")
+                return ConversationHandler.END
+        await query.edit_message_text("Topic saved!")
+        context.user_data.pop("custom_topic_name", None)
+        context.user_data.pop("custom_topic_hash", None)
+        context.user_data.pop("country_code", None)
+    else:
+        await query.edit_message_text("Topic not saved.")
+
+    return ConversationHandler.END
+
+
+send_topic_news_conv_handler = ConversationHandler(
+    entry_points=[CommandHandler('topic_news', start_topic_news)],
+    states={
+        bot_states.SendTopicNews.SELECT_SAVED_TOPICS: [CallbackQueryHandler(select_saved_topics)],
+        bot_states.SendTopicNews.INPUT_CUSTOM_TOPIC_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, input_custom_topic_name)],
+        bot_states.SendTopicNews.INPUT_CUSTOM_TOPIC_HASH: [MessageHandler(filters.TEXT & ~filters.COMMAND, input_custom_topic_hash)],
+        bot_states.SendTopicNews.INPUT_CUSTOM_TOPIC_COUNTRY: [MessageHandler(filters.TEXT & ~filters.COMMAND, input_custom_topic_country)],
+        bot_states.SendTopicNews.PROMPT_IF_SAVE_TOPIC: [CallbackQueryHandler(prompt_if_save_topic)],
+    },
+    fallbacks=[CommandHandler('cancel', bf.cancel)]
+)
+#_____________________________________________________________________________________#
+
+# /query_news handler
+
+# Function to start the /query_news conversation
+async def start_query_news(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    flags = hf.extract_flags(update.message.text, ["c"])
+    # default will be when = "1d"  
+    async with get_db() as db:
+        user_id = context.user_data.get("id") or update.effective_user.id  # Adjust based on your user ID handling
+        try:
+            user_queries = await crud.get_user_queries(db, user_id)
+        except Exception as e:
+            logging.error(e)
+            await update.message.reply_text(f"Error fetching saved queries: {err_fn.handle_data_fetching_error(e)} Exiting session")
+            return ConversationHandler.END
+
+    if "c" not in flags:
+        if not user_queries:
+            await update.message.reply_text("You have no saved queries. Please enter a custom query.")
+            context.user_data["type"] = "custom"
+            return bot_states.SendQueryNews.INPUT_CUSTOM_QUERY
+        context.user_data["type"] = "saved_all"
+        await update.message.reply_text(
+            "Would you like to specify a time range for the news articles?",
+            reply_markup=InlineKeyboardMarkup(TIME_FILTER_KEYBOARD)
+        )
+        return bot_states.SendQueryNews.TIME_FILTER_CHOICE #select if u want the default, specify the when or the from_ + to_
+
+    
+    queries_keyboard = hf.generate_queries_keyboard(user_queries) 
+    await update.message.reply_text('Select queries to fetch news for:', reply_markup=queries_keyboard(user_queries))
+    return bot_states.SendQueryNews.SELECT_SAVED_QUERIES
+
+
+# Function to handle selected saved queries or custom input
+async def select_saved_queries(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    if query.data == 'others':
+        await query.edit_message_text(text="Please enter a custom query:")
+        context.user_data["type"] = "custom"
+        return bot_states.SendQueryNews.INPUT_CUSTOM_QUERY
+    else:
+        # Fetch the query in the database and save the query into the context
+        query_id = query.data
+        context.user_data["type"] = "saved_single"
+        async with get_db() as db:
+            try:
+                query_selected = await crud.get_user_query_by_id(db, query_id)
+            except Exception as e:
+                logging.error(e)
+                await query.edit_message_text(f"Error occurred when fetching query. {err_fn.handle_data_fetching_error(e)} Exiting session...")
+                return ConversationHandler.END
+        context.user_data["query"] = query_selected.query 
+        await query.edit_message_text(text="Good choice!")
+        await update.message.reply_text(
+            "Would you like to specify a time range for the news articles?",
+            reply_markup=InlineKeyboardMarkup(TIME_FILTER_KEYBOARD)
+        )
+        return bot_states.SendQueryNews.TIME_FILTER_CHOICE
+    
+# Function to handle time filter choice
+async def handle_time_filter_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    choice = query.data
+
+    if choice == 'when':
+        context.user_data["filter_choice"] = "when"
+        await query.edit_message_text("Please enter the `when` parameter (e.g., `12h`, `5d`, `2m`):")
+        return bot_states.SendQueryNews.INPUT_WHEN
+    elif choice == 'from_to':
+        context.user_data["filter_choice"] = "from_to"
+        await query.edit_message_text("Please enter the `from` date in YYYY-MM-DD format:")
+        return bot_states.SendQueryNews.INPUT_FROM_DATE
+    elif choice == 'default':
+        context.user_data["filter_choice"] = "default"
+        await query.edit_message_text("Default time filter used, news from within 1 day will be fetched.")
+        await handle_send_query_news(update, context)
+    else:
+        await query.edit_message_text("Invalid choice. Please try again.")
+        return bot_states.SendQueryNews.TIME_FILTER_CHOICE
+    
+async def handle_send_query_news(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if context.user_data["type"] == "saved_all":
+            async with get_db() as db:
+                user_id = context.user_data.get("id") or update.effective_user.id  # Adjust based on your user ID handling
+                try:
+                    user_queries = await crud.get_user_queries_by_user(db, user_id)
+                except Exception as e:
+                    logging.error(e)
+                    await update.message.reply_text(f"Error fetching saved queries: {err_fn.handle_data_fetching_error(e)} Exiting session")
+                    return ConversationHandler.END
+            await bf.send_all_query_news(update, context, user_queries)
+    else:
+        await bf.send_query_news(update, context, context.user_data["query"])
+        if context.user_data["type"] == "custom":
+            keyboard = IF_SAVE_KEYBOARD
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text(
+                "Would you like to save these queries for future use?",
+                reply_markup=reply_markup
+            )
+            return bot_states.SendQueryNews.PROMPT_SAVE_QUERY
+    hf.remove_all_except_id_in_place(context.user_data)
+    return ConversationHandler.END
+
+
+# Function to handle 'when' parameter input
+async def input_when(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    when_input = update.message.text.strip().lower()
+    if not hf.validate_when_input(when_input):
+        await update.message.reply_text(
+            "Invalid `when` parameter. Please enter in the format like `12h`, `5d`, or `2m`:"
+        )
+        return bot_states.SendQueryNews.INPUT_WHEN
+
+    context.user_data['when'] = when_input
+    await handle_send_query_news(update, context)
+    
+# Function to handle 'from' date input
+async def input_from_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    from_date_str = update.message.text.strip()
+    if not hf.validate_date(from_date_str):
+        await update.message.reply_text(
+            "Invalid date format. Please enter the `from` date in YYYY-MM-DD format:"
+        )
+        return bot_states.SendQueryNews.INPUT_FROM_DATE
+
+    context.user_data['from_'] = from_date_str
+    await update.message.reply_text("Please enter the `to` date in YYYY-MM-DD format:")
+    return bot_states.SendQueryNews.INPUT_TO_DATE
+
+# Function to handle 'to' date input
+async def input_to_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    to_date_str = update.message.text.strip()
+    if not hf.validate_date(to_date_str):
+        await update.message.reply_text(
+            "Invalid date format. Please enter the `to` date in YYYY-MM-DD format:"
+        )
+        return bot_states.SendQueryNews.INPUT_TO_DATE
+
+    from_date_str = context.user_data.get('from_')
+    if not from_date_str:
+        await update.message.reply_text(
+            "Missing `from` date. Please start over."
+        )
+        return ConversationHandler.END
+
+    # Ensure from_date <= to_date
+    from_date = datetime.strptime(from_date_str, "%Y-%m-%d")
+    to_date = datetime.strptime(to_date_str, "%Y-%m-%d")
+    if from_date > to_date:
+        await update.message.reply_text(
+            "`from` date cannot be after `to` date. Please enter the `from` date again:"
+        )
+        return bot_states.SendQueryNews.INPUT_FROM_DATE
+
+    context.user_data['to_'] = to_date_str
+    await handle_send_query_news(update, context)
+    
+async def confirm_save_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    response = query.data  # 'yes' or 'no'
+
+    if response == 'yes':
+        async with get_db() as db:
+            user_id = context.user_data.get("id")   
+            try:
+                await crud.create_user_query(db, user_id, context.user_data["query"])
+            except Exception as e:
+                logging.error(f"Error saving queries: {e}")
+                await query.edit_message_text("Failed to save your queries. Please try again later.")
+                return ConversationHandler.END
+        await query.edit_message_text("Your queries have been saved!")
+    else:
+        await query.edit_message_text("Your queries were not saved.")
+        
+    hf.remove_all_except_id_in_place(context.user_data)
+    return ConversationHandler.END
+
+# Function to handle custom query input
+async def input_custom_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    custom_query = update.message.text.strip()
+    if not custom_query:
+        await update.message.reply_text("Query cannot be empty. Please enter a valid news query:")
+        return bot_states.SendQueryNews.INPUT_CUSTOM_QUERY
+
+    context.user_data['query'] = custom_query
+    await update.message.reply_text(
+        "Would you like to specify a time range for the news articles?",
+        reply_markup=InlineKeyboardMarkup(TIME_FILTER_KEYBOARD)
+    )
+    return bot_states.SendQueryNews.TIME_FILTER_CHOICE
+
+# Define the ConversationHandler for /query_news
+query_news_conv_handler = ConversationHandler(
+    entry_points=[CommandHandler('query_news', start_query_news)],
+    states={
+        bot_states.SendQueryNews.SELECT_SAVED_QUERIES: [
+            CallbackQueryHandler(select_saved_queries)
+        ],
+        bot_states.SendQueryNews.INPUT_CUSTOM_QUERY: [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, input_custom_query)
+        ],
+        bot_states.SendQueryNews.TIME_FILTER_CHOICE: [
+            CallbackQueryHandler(handle_time_filter_choice)
+        ],
+        bot_states.SendQueryNews.INPUT_WHEN: [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, input_when)
+        ],
+        bot_states.SendQueryNews.INPUT_FROM_DATE: [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, input_from_date)
+        ],
+        bot_states.SendQueryNews.INPUT_TO_DATE: [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, input_to_date)
+        ],
+        bot_states.SendQueryNews.PROMPT_SAVE_QUERY: [
+            CallbackQueryHandler(confirm_save_query)
+        ],
+    },
+    fallbacks=[CommandHandler('cancel', bf.cancel)],
 )

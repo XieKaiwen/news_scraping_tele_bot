@@ -100,20 +100,16 @@ async def ensure_user_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 # Handle the case where the user does not exist in the database
                 await update.message.reply_text("You are not registered in the system. Please use the /start command to add yourself into the database.")
                 raise ApplicationHandlerStop
-# /send_query_news
-# async def send_query_news(update, _: ContextTypes.DEFAULT_TYPE):
-#     command_text = update.message.text
-#     print(command_text)
-#     args = {match.group('flag'): match.group('value') for match in re.finditer(parse_command_for_args_pattern, command_text)}
-#     print(args)
+
 
 # Add the "middleware" before other handlers, ensuring it runs first
 ptb.add_handler(MessageHandler(filters.TEXT, ensure_user_id), group=0)
 ptb.add_handler(CommandHandler("start", start), group=1)
 ptb.add_handler(CommandHandler("search_query_help", bf.send_search_query_help), group=1)
-ptb.add_handler(bot_conv.top_news_conv_handler, group=1)
+ptb.add_handler(bot_conv.top_news_conv_handler, group=1) # /top_news
 # ptb.add_handler(CommandHandler("send_query_news", send_query_news))
 ptb.add_handler(CommandHandler("display_user_topics", bf.display_user_topics), group=1)
-ptb.add_handler(bot_conv.edit_topic_preference_conv_handler, group=1)
+ptb.add_handler(bot_conv.edit_topic_preference_conv_handler, group=1) # /edit_saved_topics
 ptb.add_handler(CommandHandler("display_user_queries", bf.display_user_queries), group=1)
-ptb.add_handler(bot_conv.edit_saved_queries_conv_handler, group=1)
+ptb.add_handler(bot_conv.edit_saved_queries_conv_handler, group=1) # /edit_saved_queries
+ptb.add_handler(bot_conv.send_topic_news_conv_handler, group=1) # /send_topic_news
