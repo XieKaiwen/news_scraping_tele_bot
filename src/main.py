@@ -113,3 +113,4 @@ ptb.add_handler(bot_conv.edit_topic_preference_conv_handler, group=1) # /edit_sa
 ptb.add_handler(CommandHandler("display_user_queries", bf.display_user_queries), group=1)
 ptb.add_handler(bot_conv.edit_saved_queries_conv_handler, group=1) # /edit_saved_queries
 ptb.add_handler(bot_conv.send_topic_news_conv_handler, group=1) # /send_topic_news
+ptb.add_handler(bot_conv.query_news_conv_handler, group=1)

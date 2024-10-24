@@ -477,9 +477,9 @@ async def start_query_news(update: Update, context: ContextTypes.DEFAULT_TYPE):
     flags = hf.extract_flags(update.message.text, ["c"])
     # default will be when = "1d"  
     async with get_db() as db:
-        user_id = context.user_data.get("id") or update.effective_user.id  # Adjust based on your user ID handling
+        user_id = context.user_data.get("id")
         try:
-            user_queries = await crud.get_user_queries(db, user_id)
+            user_queries = await crud.get_user_queries_by_user(db, user_id)
         except Exception as e:
             logging.error(e)
             await update.message.reply_text(f"Error fetching saved queries: {err_fn.handle_data_fetching_error(e)} Exiting session")
@@ -499,7 +499,7 @@ async def start_query_news(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     
     queries_keyboard = hf.generate_queries_keyboard(user_queries) 
-    await update.message.reply_text('Select queries to fetch news for:', reply_markup=queries_keyboard(user_queries))
+    await update.message.reply_text('Select queries to fetch news for:', reply_markup=queries_keyboard)
     return bot_states.SendQueryNews.SELECT_SAVED_QUERIES
 
 
@@ -525,7 +525,7 @@ async def select_saved_queries(update: Update, context: ContextTypes.DEFAULT_TYP
                 return ConversationHandler.END
         context.user_data["query"] = query_selected.query 
         await query.edit_message_text(text="Good choice!")
-        await update.message.reply_text(
+        await update.callback_query.message.reply_text(
             "Would you like to specify a time range for the news articles?",
             reply_markup=InlineKeyboardMarkup(TIME_FILTER_KEYBOARD)
         )
@@ -540,16 +540,16 @@ async def handle_time_filter_choice(update: Update, context: ContextTypes.DEFAUL
 
     if choice == 'when':
         context.user_data["filter_choice"] = "when"
-        await query.edit_message_text("Please enter the `when` parameter (e.g., `12h`, `5d`, `2m`):")
+        await query.edit_message_text("Please enter the `when` parameter \(\e\.\g\.\, `12h`, `5d`, `2m`\)\:", parse_mode="MarkdownV2")
         return bot_states.SendQueryNews.INPUT_WHEN
     elif choice == 'from_to':
         context.user_data["filter_choice"] = "from_to"
-        await query.edit_message_text("Please enter the `from` date in YYYY-MM-DD format:")
+        await query.edit_message_text("Please enter the `from` date in YYYY\-\MM\-\DD format:", parse_mode="MarkdownV2")
         return bot_states.SendQueryNews.INPUT_FROM_DATE
     elif choice == 'default':
         context.user_data["filter_choice"] = "default"
         await query.edit_message_text("Default time filter used, news from within 1 day will be fetched.")
-        await handle_send_query_news(update, context)
+        return await handle_send_query_news(update, context)
     else:
         await query.edit_message_text("Invalid choice. Please try again.")
         return bot_states.SendQueryNews.TIME_FILTER_CHOICE
@@ -570,12 +570,19 @@ async def handle_send_query_news(update: Update, context: ContextTypes.DEFAULT_T
         if context.user_data["type"] == "custom":
             keyboard = IF_SAVE_KEYBOARD
             reply_markup = InlineKeyboardMarkup(keyboard)
-            await update.message.reply_text(
-                "Would you like to save these queries for future use?",
+            
+            if update.message:
+                message = update.message
+            else:
+                message = update.callback_query.message
+            
+            await message.reply_text(
+                "Would you like to save this query for future use?",
                 reply_markup=reply_markup
             )
             return bot_states.SendQueryNews.PROMPT_SAVE_QUERY
     hf.remove_all_except_id_in_place(context.user_data)
+    # print("hello")
     return ConversationHandler.END
 
 
@@ -589,7 +596,7 @@ async def input_when(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return bot_states.SendQueryNews.INPUT_WHEN
 
     context.user_data['when'] = when_input
-    await handle_send_query_news(update, context)
+    return await handle_send_query_news(update, context)
     
 # Function to handle 'from' date input
 async def input_from_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -630,7 +637,7 @@ async def input_to_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return bot_states.SendQueryNews.INPUT_FROM_DATE
 
     context.user_data['to_'] = to_date_str
-    await handle_send_query_news(update, context)
+    return await handle_send_query_news(update, context)
     
 async def confirm_save_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query

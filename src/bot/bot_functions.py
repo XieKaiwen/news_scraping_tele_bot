@@ -60,7 +60,7 @@ async def send_query_news(update: Update, context: ContextTypes.DEFAULT_TYPE, qu
         message = update.message
     else:
         message = update.callback_query.message
-    await message.reply_text(f"Fetching top news for '{query}'...", reply_markup=ReplyKeyboardRemove())
+    await message.reply_text(f"Fetching news for '{query}'...", reply_markup=ReplyKeyboardRemove())
     
     # decide whether to use when, from_to or default
     filter_choice = context.user_data.get("filter_choice", "default")
