@@ -14,6 +14,8 @@ import src.bot.conv as bot_conv
 import src.bot.bot_functions as bf
 from src.database.database import get_db
 import src.database.crud as crud
+import logging
+import src.utils.errors as err_fn
 load_dotenv()
 # uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
 
@@ -105,8 +107,12 @@ async def ensure_user_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 context.user_data['id'] = db_user.id
             else:
                 # Handle the case where the user does not exist in the database
-                await update.message.reply_text("You are not registered in the system. Please use the /start command to add yourself into the database.")
-                raise ApplicationHandlerStop
+                try:
+                    new_user = await crud.create_user(db, tele_id, user.name)
+                    context.user_data['id'] = new_user.id
+                except Exception as e:
+                    logging.error(e)
+                    await update.message.reply_text(f"Error occurred when adding user. {err_fn.handle_data_mutation_error(e)}")
 
 
 # Add the "middleware" before other handlers, ensuring it runs first
