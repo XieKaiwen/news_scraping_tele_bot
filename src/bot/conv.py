@@ -338,7 +338,7 @@ async def start_topic_news(update: Update, context:ContextTypes.DEFAULT_TYPE):
 
         except Exception as e:
             logging.error(e)
-            await update.message.reply_text(f"{extracted_flags["r"]} is not a valid number for the -f flag. Try inputting correctly.")
+            await update.message.reply_text(f"{extracted_flags['r']} is not a valid number for the -f flag. Try inputting correctly.")
             return ConversationHandler.END
     context.user_data["filter_num_days"] = filter_num_days
     if "c" not in extracted_flags:
