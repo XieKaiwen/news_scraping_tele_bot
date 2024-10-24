@@ -9,6 +9,7 @@ import src.utils.errors as err_fn
 from src.utils.google_search_help import google_search_operator
 import logging
 from src.database.models import TopicPreference, UserQuery
+from src.utils.constants import help_message
 # top_news_conv_handler
 async def send_top_news(update: Update, _: ContextTypes.DEFAULT_TYPE, country = "US"):
     await update.message.reply_text("Fetching top news...", reply_markup=ReplyKeyboardRemove())
@@ -144,3 +145,7 @@ async def display_user_queries(update: Update, context: ContextTypes.DEFAULT_TYP
         # Format and display the topics
         queries_list = "\n".join([f"{idx + 1}. {query.query}" for idx, query in enumerate(queries)])
         await message.reply_text(f"Here are your saved queries:\n{queries_list}")
+        
+        
+async def send_help_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_markdown_v2(help_message)
