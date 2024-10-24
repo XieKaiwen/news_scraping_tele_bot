@@ -31,13 +31,20 @@ ptb = (
 print("Initialised python telegram bot")
 
 if CODE_ENV == 'dev':
-    http_tunnel = ngrok.connect(8000)
-    DEV_PUBLIC_URL = http_tunnel.public_url
-    print("Obtained public URL: " + DEV_PUBLIC_URL)
+    print("Running in development mode")
+else:
+    print("Running in production mode")
+
+    
+ngrok_auth_token = os.getenv('NGROK_AUTH_TOKEN')
+ngrok.set_auth_token(ngrok_auth_token)
+http_tunnel = ngrok.connect(8000)
+PUBLIC_URL = http_tunnel.public_url
+print("Obtained public URL: " + PUBLIC_URL)
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    await ptb.bot.setWebhook(DEV_PUBLIC_URL)
+    await ptb.bot.setWebhook(PUBLIC_URL)
     async with ptb:
         await ptb.start()
         print("bot started...")
