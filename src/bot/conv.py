@@ -540,7 +540,10 @@ async def handle_time_filter_choice(update: Update, context: ContextTypes.DEFAUL
 
     if choice == 'when':
         context.user_data["filter_choice"] = "when"
-        await query.edit_message_text("Please enter the `when` parameter \(\e\.\g\.\, `12h`, `5d`, `2m`\)\:", parse_mode="MarkdownV2")
+        await query.edit_message_text(
+    "Please enter the `when` parameter \\(e\\.g\\., `12h`, `5d`, `2m`\\):", 
+    parse_mode="MarkdownV2"
+)
         return bot_states.SendQueryNews.INPUT_WHEN
     elif choice == 'from_to':
         context.user_data["filter_choice"] = "from_to"

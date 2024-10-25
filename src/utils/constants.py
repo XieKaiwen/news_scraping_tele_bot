@@ -55,9 +55,6 @@ Stay updated with the latest news tailored to your interests\. Here's a brief gu
       \- Filter news articles from the past specified number of days  
       \- Example: `/topic\_news \-f 3` fetches news from the past 3 days  
       \- If not specified, defaults to 1 day
-  \- *How to use:*
-    1\. Send `/topic\_news` with optional flags
-    2\. Follow the prompts to select or enter a topic
 
 • */query\_news* \[\-c\]
   \- Fetch news articles based on your saved queries or a custom query
@@ -118,7 +115,7 @@ Stay updated with the latest news tailored to your interests\. Here's a brief gu
   \- If an invalid country is selected, the default is the United States
 
 • *Public Topics*
-  \- Some topics are predefined \(e\.g\., "technology", "sports"\)
+  \- Some topics are predefined \(e\.g\., \"technology\", \"sports\"\)
   \- If you enter a public topic name, the bot automatically assigns the topic hash
 
 • *Saving Preferences*
