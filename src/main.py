@@ -99,9 +99,13 @@ async def ensure_user_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         tele_id = str(user.id)
         
         # Fetch the user_id from the database
-        async with get_db() as db:  # Assuming `get_db` provides AsyncSession
-            db_user = await crud.get_user_by_tele_id(db, tele_id)
-            
+        async with get_db() as db:
+            try:# Assuming `get_db` provides AsyncSession
+                db_user = await crud.get_user_by_tele_id(db, tele_id)
+            except Exception as e:
+                logging.error(e)
+                await update.message.reply_text(f"Error occurred when fetching user. {err_fn.handle_data_mutation_error(e)}")
+                raise ApplicationHandlerStop
             # If the user exists, store their ID in user_data
             if db_user:
                 context.user_data['id'] = db_user.id
@@ -113,7 +117,7 @@ async def ensure_user_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 except Exception as e:
                     logging.error(e)
                     await update.message.reply_text(f"Error occurred when adding user. {err_fn.handle_data_mutation_error(e)}")
-
+                    raise ApplicationHandlerStop
 
 # Add the "middleware" before other handlers, ensuring it runs first
 ptb.add_handler(MessageHandler(filters.TEXT, ensure_user_id), group=0)
