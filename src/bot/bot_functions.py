@@ -149,3 +149,8 @@ async def display_user_queries(update: Update, context: ContextTypes.DEFAULT_TYP
         
 async def send_help_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_markdown_v2(help_message)
+    # Message with a clickable link (HTML format)
+    message = 'Click <a href="https://medium.com/@felixlangfeld/the-secret-google-news-topics-google-doesnt-want-you-to-know-e067857a76de">here</a> to find out how to find topic hashes for your topics!'
+
+    # Send the message
+    await update.message.reply_text(message, parse_mode="HTML")
