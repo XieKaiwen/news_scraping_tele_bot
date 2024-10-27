@@ -47,7 +47,7 @@ Stay updated with the latest news tailored to your interests\. Here's a brief gu
 
 • */topic\_news* \[\-c\] \[\-f \<days\>\]
   \- Fetch news articles based on your saved topics or a custom topic
-  \- Pre-defined topics: `business`, `entertainment`, `nation`, `world`, `science`, `sports`, `technology`, `health`
+  \- Pre\-defined topics: `business`, `entertainment`, `nation`, `world`, `science`, `sports`, `technology`, `health`
   \- *Flags:*
     \- *\-c*  
       \- Choose a specific topic to fetch news for  
